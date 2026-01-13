@@ -32,7 +32,7 @@ pn.make(new_dtpk,"./hello_dtpk")
 `Dtpk`을 상속받아 정의된 클래스는 이제부터 `데이터팩 클래스`라고 부르겠습니다.
 
 
-__init__으로 version과 namespace를 설정해주셔야 합니다.
+데이터팩 클래스는 `__init__`에서 version과 namespace가 설정되어야 합니다.
 
 
 실제 데이터팩 파일을 생성하기 위해서는 `pn.make` 함수에 데이터팩 클래스 인스턴스와 출력 경로를 넘겨주시면 됩니다.
@@ -81,10 +81,10 @@ class ExamplePack(pn.Dtpk):
                 pn.raw(f"say Hello, {name}!")
         @pn.onload
         def load(self): # 데이터팩 로드 시 실행됩니다.
-                hello("load") # `say Hello, load!`를 load.mcfunction에 작성합니다.
+                self.hello("load") # `say Hello, load!`를 load.mcfunction에 작성합니다.
         @pn.ontick
         def tick(self): # 매 틱마다 실행됩니다.
-                hello("tick") # `say Hello, tick!`을 tick.mcfunction에 작성합니다.
+                self.hello("tick") # `say Hello, tick!`을 tick.mcfunction에 작성합니다.
 pn.make(ExamplePack(),"./example_dtpk")
 ```
 
