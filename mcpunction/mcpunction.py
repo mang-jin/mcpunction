@@ -41,23 +41,28 @@ def version_to_pack_format(version):
         return pack_format
 
 cur_file=None
+cur_dtpk=None
 
 def raw(*args):
-        global cur_file
-        assert cur_file
+        global cur_file,cur_dtpk
+        assert cur_file and cur_dtpk
         code="".join(args)
+        print("context:",cur_dtpk.context)
         print(f"wrote text to {cur_file.name}: {code}")
+        if cur_dtpk.context:
+                cur_file.write(f"execute {cur_dtpk.context} run ")
         cur_file.write(code+"\n")
 
 def wrapper(func):
         @wraps(func)
         def inner(*args,**kwargs):
-                global cur_file
-                print(f"[{func.__name__}] CUR FILE: {cur_file.name}")
+                global cur_file,cur_dtpk
+                print(f"[{func.__name__}]")
                 if kwargs.pop("_mcpuntion_funcinit",False) or getattr(func,"_mcpunction_ismac",False):
                         result = func(*args,**kwargs)
                         return result
                 else:
+                        print("called")
                         raw(f"function main:{func.__name__}")
         return inner
 
@@ -83,6 +88,8 @@ def ontick(func):
         return func
 
 def make(pkg,output_path):
+        global cur_file,cur_dtpk
+        cur_dtpk=pkg
         namespace=pkg.namespace
         pack_format=version_to_pack_format(pkg.version)
 
@@ -111,7 +118,6 @@ def make(pkg,output_path):
                 f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{pack_format}}}}}')
         print("="*50)
 
-        global cur_file
         for name, method in inspect.getmembers(pkg):
                 if name[0].isupper() or name.startswith("__"):
                         continue
@@ -121,7 +127,11 @@ def make(pkg,output_path):
                                 load_funcs.append(f'"{namespace}:{name}"')
                         if getattr(method,"_mcpunction_ontick",False):
                                 tick_funcs.append(f'"{namespace}:{name}"')
+                        cur_dtpk.context = None
+                        print("[RESET CONTEXT]")
+                        print("[START METHOD]",name)
                         method(_mcpuntion_funcinit=True)
+                        print("[END METHOD]",name)
                         cur_file.close()
         with open(f"{func_tags_dir}/load.json",'w') as f:
                 f.write('{"values":[')
@@ -131,3 +141,5 @@ def make(pkg,output_path):
                 f.write('{"values":[')
                 f.write(",".join(tick_funcs))
                 f.write(']}')
+        cur_file=None
+        cur_dtpk=None
