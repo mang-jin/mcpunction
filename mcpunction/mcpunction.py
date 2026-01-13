@@ -58,7 +58,9 @@ def wrapper(func):
         def inner(*args,**kwargs):
                 global cur_file,cur_dtpk
                 print(f"[{func.__name__}]")
-                if kwargs.pop("_mcpuntion_funcinit",False) or getattr(func,"_mcpunction_ismac",False):
+                is_init=kwargs.pop("_mcpuntion_funcinit",False)
+                is_mac=getattr(func,"_mcpunction_ismac",False)
+                if is_init or is_mac:
                         result = func(*args,**kwargs)
                         return result
                 else:
@@ -74,21 +76,21 @@ class Dtpk:
                         if name[0].isupper() or name.startswith("__"):
                                 continue
                         setattr(cls, name, wrapper(method))
+
 class Context:
         def __init__(self,context):
-                global cur_dtpk
-                self.dtpk=cur_dtpk
                 self.context=context
-        def bind(self,dtpk):
-                self.dtpk=dtpk
-                return self
         def __enter__(self):
-                self.dtpk.context=self.context
+                global cur_dtpk
+                cur_dtpk.context=self.context
         def __exit__(self,*exec):
-                self.dtpk.context=None
-
-def con_(context):
-        return Context(selector)
+                global cur_dtpk
+                cur_dtpk.context=None
+        def __add__(self,other):
+                if not isinstance(other,Context):
+                        return
+                new_context = self.context+" "+other.context
+                return Context(new_context)
                 
 def mac(func):
         # @wraps(func)
@@ -149,10 +151,8 @@ def make(pkg,output_path):
                         if getattr(method,"_mcpunction_ontick",False):
                                 tick_funcs.append(f'"{namespace}:{name}"')
                         cur_dtpk.context = None
-                        print("[RESET CONTEXT]")
-                        print("[START METHOD]",name)
+                        print(f"[INIT {name}]")
                         method(_mcpuntion_funcinit=True)
-                        print("[END METHOD]",name)
                         cur_file.close()
         with open(f"{func_tags_dir}/load.json",'w') as f:
                 f.write('{"values":[')
