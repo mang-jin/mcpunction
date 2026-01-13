@@ -6,13 +6,13 @@ class pkg(pn.Dtpk):
                 self.namespace="main"
         @pn.mac
         def get_nearby_entities(self):
-                return "as @e[distance=..5]"
-        def say_and_kill(self):
-                pn.raw("say hi")
-                pn.raw("kill @s")
+                return pn.Context("as @e[distance=..5]")
         @pn.onload
         def main(self):
-                self.context = self.get_nearby_entities()
-                self.say_and_kill()
+                with self.get_nearby_entities():
+                        pn.raw("say hello")
+                        pn.raw("kill @s")
+                with pn.Context("as @a"):
+                        pn.raw("say hi")
 p=pkg()
 pn.make(p,"../test_dtpk")

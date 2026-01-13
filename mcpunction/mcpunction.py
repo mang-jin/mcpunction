@@ -74,8 +74,29 @@ class Dtpk:
                         if name[0].isupper() or name.startswith("__"):
                                 continue
                         setattr(cls, name, wrapper(method))
+class Context:
+        def __init__(self,context):
+                global cur_dtpk
+                self.dtpk=cur_dtpk
+                self.context=context
+        def bind(self,dtpk):
+                self.dtpk=dtpk
+                return self
+        def __enter__(self):
+                self.dtpk.context=self.context
+        def __exit__(self,*exec):
+                self.dtpk.context=None
+
+def con_(context):
+        return Context(selector)
                 
 def mac(func):
+        # @wraps(func)
+        # def inner(*args,**kwargs):
+        #         result = func(*args,**kwargs)
+        #         if isinstance(result,Context):
+        #                 result.bind(args[0])
+        #         return result
         func._mcpunction_ismac = True
         return func
 
