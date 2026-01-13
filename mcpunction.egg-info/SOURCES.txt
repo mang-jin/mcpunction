@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+mcpunction/__init__.py
+mcpunction/mcpunction.py
+mcpunction.egg-info/PKG-INFO
+mcpunction.egg-info/SOURCES.txt
+mcpunction.egg-info/dependency_links.txt
+mcpunction.egg-info/top_level.txt
+tests/test_mcpunction.py

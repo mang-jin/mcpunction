@@ -1,0 +1,12 @@
+[project]
+name = "mcpunction"
+version = "0.0.1"
+authors = [{ name = "mangjin", email = "mangjin113@gmail.com"}]
+description = "mcfunction but in python"
+readme = "README.md"
+license = { file = "LICENSE" }
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=46","wheel"]
+build-backend = "setuptools.build_meta"
