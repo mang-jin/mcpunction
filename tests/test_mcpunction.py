@@ -21,4 +21,4 @@ class pkg(pn.Dtpk):
                         pn.raw("tag @s add used_gun")
                 
 p=pkg()
-pn.make(p,"../test_dtpk")
+pn.make(p,"../test_dtpk",overwrite=True)

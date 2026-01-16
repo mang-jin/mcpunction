@@ -42,30 +42,38 @@ def version_to_pack_format(version):
 
 cur_file=None
 cur_dtpk=None
+block_count=0
 
 def raw(*args):
         global cur_file,cur_dtpk
         assert cur_file and cur_dtpk
         code="".join(args)
-        print("context:",cur_dtpk.context)
-        print(f"wrote text to {cur_file.name}: {code}")
-        if cur_dtpk.context:
-                cur_file.write(f"execute {cur_dtpk.context} run ")
+        context=" ".join(cur_dtpk._mcpunction_contexts)
+        print("contexts:",cur_dtpk._mcpunction_contexts)
+        print("code:",code)
+        if cur_dtpk._mcpunction_contexts:
+                cur_file.write(f"execute {context} run ")
         cur_file.write(code+"\n")
 
 def wrapper(func):
+        if hasattr(func,"_mcpunction_wrapped"):
+                return func
+
         @wraps(func)
         def inner(*args,**kwargs):
                 global cur_file,cur_dtpk
-                print(f"[{func.__name__}]")
                 is_init=kwargs.pop("_mcpuntion_funcinit",False)
                 is_mac=getattr(func,"_mcpunction_ismac",False)
                 if is_init or is_mac:
+                        if is_init:
+                                last= cur_dtpk._mcpunction_contexts if hasattr(cur_dtpk,"_mcpunction_contexts") else []
+                                cur_dtpk._mcpunction_contexts=[]
                         result = func(*args,**kwargs)
+                        cur_dtpk._mcpunction_contexts=last
                         return result
                 else:
-                        print("called")
                         raw(f"function main:{func.__name__}")
+        inner._mcpunction_wrapped = True
         return inner
 
 class Dtpk:
@@ -82,10 +90,25 @@ class Context:
                 self.context=context
         def __enter__(self):
                 global cur_dtpk
-                cur_dtpk.context=self.context
+                cur_dtpk._mcpunction_contexts.append(self.context)
         def __exit__(self,*exec):
-                global cur_dtpk
-                cur_dtpk.context=None
+                cur_dtpk._mcpunction_contexts.pop()
+        def __add__(self,other):
+                if not isinstance(other,Context):
+                        return
+                new_context = self.context+" "+other.context
+                return Context(new_context)
+
+class Block:
+        # TODO: implement Block
+        def __init__(self,context):
+                self.context=context
+        def __enter__(self):
+                global cur_dtpk,cur_file
+                self.last=cur_file
+                cur_file=open("",'w')
+        def __exit__(self,*exec):
+                cur_dtpk.context.pop()
         def __add__(self,other):
                 if not isinstance(other,Context):
                         return
@@ -93,12 +116,6 @@ class Context:
                 return Context(new_context)
                 
 def mac(func):
-        # @wraps(func)
-        # def inner(*args,**kwargs):
-        #         result = func(*args,**kwargs)
-        #         if isinstance(result,Context):
-        #                 result.bind(args[0])
-        #         return result
         func._mcpunction_ismac = True
         return func
 
@@ -110,11 +127,13 @@ def ontick(func):
         func._mcpunction_ontick = True
         return func
 
-def make(pkg,output_path):
-        global cur_file,cur_dtpk
+def make(pkg,output_path,overwrite=False):
+        global cur_file,cur_dtpk,cur_func_dir_path
         cur_dtpk=pkg
         namespace=pkg.namespace
         pack_format=version_to_pack_format(pkg.version)
+        if not hasattr(cur_dtpk,"context") or not isinstance(cur_dtpk.context,list):
+                cur_dtpk.context=[]
 
         function_dir_name = "function" if pack_format >= 48 else "functions"
 
@@ -122,14 +141,16 @@ def make(pkg,output_path):
         print(f"datapack namespace = {namespace}")
         print(f"datapack pack_format = {pack_format}")
         func_dir_path=f"{output_path}/data/{namespace}/{function_dir_name}"
+        cur_func_dir_path=func_dir_path
         try:
                 os.makedirs(output_path)
                 os.makedirs(func_dir_path)
         except FileExistsError:
-                yorn = input("이미 폴더가 존재합니다. 덮어쓰시겠습니까? (y/N): ").lower()
-                if yorn != "y":
-                        print("취소되었습니다.")
-                        return
+                if not overwrite:
+                        yorn = input("이미 폴더가 존재합니다. 덮어쓰시겠습니까? (y/N): ").lower()
+                        if yorn != "y":
+                                print("취소되었습니다.")
+                                return
                 shutil.rmtree(output_path)
                 os.makedirs(func_dir_path)
         func_tags_dir = f"{output_path}/data/minecraft/tags/{function_dir_name}"
@@ -139,7 +160,6 @@ def make(pkg,output_path):
 
         with open(f"{output_path}/pack.mcmeta",'w') as f:
                 f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{pack_format}}}}}')
-        print("="*50)
 
         for name, method in inspect.getmembers(pkg):
                 if name[0].isupper() or name.startswith("__"):
@@ -150,8 +170,6 @@ def make(pkg,output_path):
                                 load_funcs.append(f'"{namespace}:{name}"')
                         if getattr(method,"_mcpunction_ontick",False):
                                 tick_funcs.append(f'"{namespace}:{name}"')
-                        cur_dtpk.context = None
-                        print(f"[INIT {name}]")
                         method(_mcpuntion_funcinit=True)
                         cur_file.close()
         with open(f"{func_tags_dir}/load.json",'w') as f:
@@ -164,3 +182,4 @@ def make(pkg,output_path):
                 f.write(']}')
         cur_file=None
         cur_dtpk=None
+        print("생성 완료")
