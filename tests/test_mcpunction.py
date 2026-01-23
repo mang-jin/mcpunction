@@ -5,11 +5,12 @@ class pkg(pn.Dtpk):
                 self.version="1.21.11"
                 self.namespace="main"
                 return
-        def main(self,fn):
-                with pn.Context(fn,"as @a"):
-                        with pn.Block(fn) as fn:
-                                fn.raw("hello")
-                fn.raw("say hi")
+        def func(self):
+                pn.raw("say Hello, World!")
+        def main(self):
+                with pn.Block():
+                        self.func()
+                pn.raw("say hi")
                 return
 p=pkg()
 pn.make(p,"../test_dtpk")

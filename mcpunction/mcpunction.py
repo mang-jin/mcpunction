@@ -5,6 +5,10 @@ from pathlib import Path
 from functools import wraps
 from types import MethodType
 
+def assrt(cond,msg="Error occurred due to a bug. Please report it to mcpunction dev"):
+        if not cond:
+                raise AssertionError(msg)
+
 version_table = [
         [11300,11404,4],
         [11500,11601,5],
@@ -30,7 +34,7 @@ version_table = [
 
 def version_to_pack_format(version):
         versions=version.split(".")
-        assert len(versions) == 2 or len(versions) == 3 and "version must be like xx.xx.xx or xx.xx"
+        assrt(len(versions) == 2 or len(versions) == 3, "version must be like xx.xx.xx or xx.xx")
         int_version = 0
         for i,ver in enumerate(versions):
                 int_version += int(ver)*(10**(4-i*2))
@@ -41,20 +45,34 @@ def version_to_pack_format(version):
                         break
         return pack_format
 
-class FnBuilder:
-        def __init__(self,user_data,output_path):
-                self.user_data=user_data
-                self.output_path=user_data["make_fn_path"](output_path)
+class UserData:
+        def __init__(self,dtpk,output_path,namespace):
+                self.pack_format=version_to_pack_format(dtpk.version)
+                self.fn_dir_name="function" if self.pack_format>=48 else "functions"
+                self.func_dir_path=f"{output_path}/data/{namespace}/{self.fn_dir_name}"
+                self.dtpk=dtpk
+                self.output_path=output_path
+                self.namespace=namespace
+                self.cur_files=[]
                 self.context=[]
-        def raw(self,*args):
-                print(f"output_path: {self.output_path}, context: {self.context}")
-                code="".join(args)
-                print("wrote raw:",code)
-        def close(self):
-                print("FnBuilder Closed")
+        def make_fn_path(self,fn_name):
+                return f"{self.func_dir_path}/{fn_name}.mcfunction"
 
-def get_fn_dir(pack_format):
-        return "function" if pack_format>=48 else "functions"
+user_data=None
+
+def raw(*args):
+        global user_data
+        assrt(user_data and len(user_data.cur_files)!=0)
+                
+        code=""
+        if len(user_data.context)>0:
+                code+="execute "
+                code+=''.join(user_data.context)
+                code+=" run "
+        code+=''.join(args)
+
+        print("wrote raw:",code,"to",user_data.cur_files[-1].name)
+        user_data.cur_files[-1].write(f"{code}\n")
 
 def wrapper(func,cls):
         if hasattr(func,"_mcpunction_wrapped"):
@@ -62,19 +80,18 @@ def wrapper(func,cls):
 
         @wraps(func)
         def inner(*args,**kwargs):
-                user_data=kwargs.pop("_mcpunction_dtpk_data",None)
-                is_init=True if user_data else False
+                global user_data
+                is_init=kwargs.pop("_mcpunction_is_init",False)
                 is_mac=getattr(func,"_mcpunction_ismac",False)
                 if is_mac:
                         return func(*args,**kwargs)
                 if is_init:
-                        builder=FnBuilder(user_data,f"{cls.__name__}_{func.__name__}")
-                        func(user_data["dtpk"],builder)
-                        builder.close()
+                        with open(user_data.make_fn_path(f"{cls.__name__}_{func.__name__}"),'w') as fn_file:
+                                user_data.cur_files.append(fn_file)
+                                func(*args,**kwargs)
+                                user_data.cur_files.pop()
                 else:
-                        if len(args)>1 or len(kwargs)>0:
-                                raise ValueError("마인크래프트 함수는 인자를 받을 수 없습니다")
-                        raw(f"function main:{cls.__name__}_{func.__name__}")
+                        raw(f"function {user_data.namespace}:{cls.__name__}_{func.__name__}")
         inner._mcpunction_wrapped = True
         return inner
 
@@ -88,13 +105,14 @@ class Dtpk:
                         setattr(cls, name, wrapper(method,cls))
 
 class Context:
-        def __init__(self,func_builder,context):
+        def __init__(self,context):
                 self.context=context
-                self.builder=func_builder
         def __enter__(self):
-                self.builder.context.append(self.context)
-        def __exit__(self,*exec):
-                self.builder.context.pop()
+                global user_data
+                user_data.context.append(self.context)
+        def __exit__(self,*exc):
+                global user_data
+                user_data.context.pop()
         def __add__(self,other):
                 if not isinstance(other,Context):
                         return
@@ -102,21 +120,28 @@ class Context:
                 return Context(new_context)
 
 block_id=0
-
 class Block:
-        def __init__(self,fn):
-                global block_id
+        def __init__(self):
+                global user_data,block_id
+                assrt(user_data)
 
-                block_file_name=f"{block_id}_block.mcfunction"
-                fn.raw(f"function {fn.user_data['namespace']}:{block_id}_block")
+                block_file_name=f"{block_id}_block"
+                raw(f"function {user_data.namespace}:{block_file_name}")
 
-                self.fn=FnBuilder(fn.user_data,block_file_name)
+                self.path=user_data.make_fn_path(block_file_name)
 
                 block_id+=1
         def __enter__(self):
-                return self.fn
-        def __exit__(self,*exec):
-                self.fn.close()
+                global user_data
+                assrt(user_data)
+                self.fn_file=open(self.path,'w')
+                self.fn_file.__enter__()
+                user_data.cur_files.append(self.fn_file)
+        def __exit__(self,*exc):
+                global user_data
+                assrt(user_data)
+                user_data.cur_files.pop()
+                self.fn_file.__exit__(*exc)
                 
 def mac(func):
         func._mcpunction_ismac = True
@@ -130,76 +155,28 @@ def ontick(func):
         func._mcpunction_ontick = True
         return func
 
-def make(dtpk: Dtpk,output_path: str,namespace="main"):
-        pack_format=version_to_pack_format(dtpk.version)
-        fn_dir_name="function" if pack_format>=48 else "functions"
-        func_dir_path=f"{output_path}/data/{namespace}/{fn_dir_name}"
-        def make_fn_path(fn_name):
-                return f"{func_dir_path}/{fn_name}.mcfunction"
-        dtpk_data = {
-                "make_fn_path": make_fn_path,
-                "func_dir_path": func_dir_path,
-                "namespace": namespace,
-                "dtpk": dtpk,
-        }
+def make(dtpk: Dtpk,output_path: str,namespace="main",overwrite=False):
+        global user_data
+        user_data=UserData(dtpk,output_path,namespace)
+
+        try:
+                os.makedirs(output_path)
+                os.makedirs(user_data.func_dir_path)
+        except FileExistsError:
+                if not overwrite:
+                        yorn = input("이미 폴더가 존재합니다. 덮어쓰시겠습니까? (y/N): ").lower()
+                        if yorn != 'y':
+                                print("취소되었습니다.")
+                                return
+                shutil.rmtree(output_path)
+                os.makedirs(user_data.func_dir_path)
+
+        with open(f"{output_path}/pack.mcmeta",'w') as f:
+                f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{user_data.pack_format}}}}}')
+
+
         for name, method in inspect.getmembers(dtpk):
                 if name[0].isupper() or name.startswith("__"):
                         continue
                 if isinstance(method,MethodType) and not getattr(method,"_mcpunction_ismac",False):
-                        method(_mcpunction_dtpk_data=dtpk_data)
-        
-
-# class Maker:
-#         def make(self,dtpk,output_path,overwrite=False):
-#                 self.dtpk=dtpk
-#                 self.output_path=output_path
-#                 self.namespace=dtpk.namespace
-#                 self.pack_format=version_to_pack_format(self.dtpk.version)                
-#                 if not hasattr(cur_dtpk,"context") or not isinstance(cur_dtpk.context,list):
-#                         self.dtpk.context=[]
-#                 self.function_dir_name = "function" if self.pack_format >= 48 else "functions"
-#                 print(f"datapack output path = {self.output_path}")
-#                 print(f"datapack namespace = {self.namespace}")
-#                 print(f"datapack pack_format = {self.pack_format}")
-#                 self.func_dir_path=f"{self.output_path}/data/{self.namespace}/{self.function_dir_name}"
-#                 try:
-#                         os.makedirs(self.output_path)
-#                         os.makedirs(self.func_dir_path)
-#                 except FileExistsError:
-#                         if not overwrite:
-#                                 yorn = input("이미 폴더가 존재합니다. 덮어쓰시겠습니까? (y/N): ").lower()
-#                                 if yorn != "y":
-#                                         print("취소되었습니다.")
-#                                         return
-#                         shutil.rmtree(self.output_path)
-#                         os.makedirs(self.func_dir_path)
-#                 self.func_tags_dir = f"{self.output_path}/data/minecraft/tags/{self.function_dir_name}"
-#                 os.makedirs(self.func_tags_dir)
-#                 self.load_funcs = []
-#                 self.tick_funcs = []
-
-#                 with open(f"{output_path}/pack.mcmeta",'w') as f:
-#                         f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{self.pack_format}}}}}')
-#                 for name, method in inspect.getmembers(self.dtpk):
-#                         if name[0].isupper() or name.startswith("__"):
-#                                 continue
-#                         if isinstance(method,MethodType) and not getattr(method,"_mcpunction_ismac",False):
-#                                 with open(f"{self.output_path}/data/{self.namespace}/{self.function_dir_name}/{name}.mcfunction",'w') as cur_file:
-#                                         self.cur_file=cur_file
-#                                         if getattr(method,"_mcpunction_onload",False):
-#                                                 load_funcs.append(f'"{self.namespace}:{name}"')
-#                                         if getattr(method,"_mcpunction_ontick",False):
-#                                                 tick_funcs.append(f'"{self.namespace}:{name}"')
-#                                         method(_mcpuntion_funcinit=True)
-#                 with open(f"{self.func_tags_dir}/load.json",'w') as f:
-#                         f.write('{"values":[')
-#                         f.write(",".join(self.load_funcs))
-#                         f.write(']}')                        
-#                 with open(f"{self.func_tags_dir}/tick.json",'w') as f:
-#                         f.write('{"values":[')
-#                         f.write(",".join(self.tick_funcs))
-#                         f.write(']}')
-#                 self.cur_file=None
-#                 self.dtpk=None
-#                 print("생성 완료")
-
+                        method(_mcpunction_is_init=True)
