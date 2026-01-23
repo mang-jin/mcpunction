@@ -7,6 +7,7 @@ class pkg(pn.Dtpk):
                 return
         def func(self):
                 pn.raw("say Hello, World!")
+        @pn.onload
         def main(self):
                 with pn.Context("as @a"), pn.Block():
                         self.func()

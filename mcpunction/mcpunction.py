@@ -77,10 +77,10 @@ def raw(*args):
 def wrapper(func,cls):
         if hasattr(func,"_mcpunction_wrapped"):
                 return func
-
         @wraps(func)
         def inner(*args,**kwargs):
                 global user_data
+                assrt(user_data)
                 is_init=kwargs.pop("_mcpunction_is_init",False)
                 is_mac=getattr(func,"_mcpunction_ismac",False)
                 if is_mac:
@@ -95,6 +95,7 @@ def wrapper(func,cls):
                 else:
                         raw(f"function {user_data.namespace}:{cls.__name__}_{func.__name__}")
         inner._mcpunction_wrapped = True
+        inner._mcpunction_fn_name = f"{cls.__name__}_{func.__name__}"
         return inner
 
 class Dtpk:
@@ -178,6 +179,11 @@ def make(dtpk: Dtpk,output_path: str,namespace="main",overwrite=False):
                 shutil.rmtree(output_path)
                 os.makedirs(user_data.func_dir_path)
 
+        func_tags_dir = f"{user_data.output_path}/data/minecraft/tags/{user_data.fn_dir_name}"
+        os.makedirs(func_tags_dir)
+        load_funcs = []
+        tick_funcs = []
+
         with open(f"{output_path}/pack.mcmeta",'w') as f:
                 f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{user_data.pack_format}}}}}')
 
@@ -186,4 +192,18 @@ def make(dtpk: Dtpk,output_path: str,namespace="main",overwrite=False):
                 if name[0].isupper() or name.startswith("__"):
                         continue
                 if isinstance(method,MethodType) and not getattr(method,"_mcpunction_ismac",False):
+                        if getattr(method,"_mcpunction_onload",False):
+                                load_funcs.append(f'"{namespace}:{getattr(method,"_mcpunction_fn_name")}"')
+                        if getattr(method,"_mcpunction_ontick",False):
+                                tick_funcs.append(f'"{namespace}:{getattr(method,"_mcpunction_fn_name")}"')
                         method(_mcpunction_is_init=True)
+
+        with open(f"{func_tags_dir}/load.json",'w') as f:
+                f.write('{"values":[')
+                f.write(",".join(load_funcs))
+                f.write(']}')                        
+        with open(f"{func_tags_dir}/tick.json",'w') as f:
+                f.write('{"values":[')
+                f.write(",".join(tick_funcs))
+                f.write(']}')
+        print("Done.")
