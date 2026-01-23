@@ -62,12 +62,12 @@ user_data=None
 
 def raw(*args):
         global user_data
-        assrt(user_data and len(user_data.cur_files)!=0)
+        assrt(user_data and len(user_data.cur_files)>0 and len(user_data.context)>0)
                 
         code=""
-        if len(user_data.context)>0:
+        if len(user_data.context[-1])>0:
                 code+="execute "
-                code+=''.join(user_data.context)
+                code+=''.join(user_data.context[-1])
                 code+=" run "
         code+=''.join(args)
 
@@ -88,7 +88,9 @@ def wrapper(func,cls):
                 if is_init:
                         with open(user_data.make_fn_path(f"{cls.__name__}_{func.__name__}"),'w') as fn_file:
                                 user_data.cur_files.append(fn_file)
+                                user_data.context.append([])
                                 func(*args,**kwargs)
+                                user_data.context.pop()
                                 user_data.cur_files.pop()
                 else:
                         raw(f"function {user_data.namespace}:{cls.__name__}_{func.__name__}")
@@ -109,10 +111,12 @@ class Context:
                 self.context=context
         def __enter__(self):
                 global user_data
-                user_data.context.append(self.context)
+                assrt(len(user_data.context)>0)
+                user_data.context[-1].append(self.context)
         def __exit__(self,*exc):
                 global user_data
-                user_data.context.pop()
+                assrt(len(user_data.context)>0)
+                user_data.context[-1].pop()
         def __add__(self,other):
                 if not isinstance(other,Context):
                         return
@@ -121,6 +125,7 @@ class Context:
 
 block_id=0
 class Block:
+        # TODO: reset context when entered
         def __init__(self):
                 global user_data,block_id
                 assrt(user_data)
@@ -133,13 +138,15 @@ class Block:
                 block_id+=1
         def __enter__(self):
                 global user_data
-                assrt(user_data)
+                assrt(user_data and len(user_data.context)>0)
+                user_data.context.append([])
                 self.fn_file=open(self.path,'w')
                 self.fn_file.__enter__()
                 user_data.cur_files.append(self.fn_file)
         def __exit__(self,*exc):
                 global user_data
-                assrt(user_data)
+                assrt(user_data and len(user_data.context)>0)
+                user_data.context.pop()
                 user_data.cur_files.pop()
                 self.fn_file.__exit__(*exc)
                 

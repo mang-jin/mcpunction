@@ -8,9 +8,9 @@ class pkg(pn.Dtpk):
         def func(self):
                 pn.raw("say Hello, World!")
         def main(self):
-                with pn.Block():
+                with pn.Context("as @a"), pn.Block():
                         self.func()
                 pn.raw("say hi")
                 return
 p=pkg()
-pn.make(p,"../test_dtpk")
+pn.make(p,"../test_dtpk",overwrite=True)
