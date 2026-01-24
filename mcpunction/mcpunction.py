@@ -46,12 +46,12 @@ def version_to_pack_format(version):
         return pack_format
 
 class UserData:
-        def __init__(self,dtpk,output_path,namespace):
-                self.pack_format=version_to_pack_format(dtpk.version)
+        def __init__(self,dtpks,version,output_path,namespace):
+                self.pack_format=version_to_pack_format(version)
                 self.fn_dir_name="function" if self.pack_format>=48 else "functions"
                 self.func_dir_path=f"{output_path}/data/{namespace}/{self.fn_dir_name}"
-                self.dtpk=dtpk
                 self.output_path=output_path
+                self.dtpks=dtpks
                 self.namespace=namespace
                 self.cur_files=[]
                 self.context=[]
@@ -89,7 +89,7 @@ def wrapper(func,cls):
                         with open(user_data.make_fn_path(f"{cls.__name__}_{func.__name__}"),'w') as fn_file:
                                 user_data.cur_files.append(fn_file)
                                 user_data.context.append([])
-                                func(*args,**kwargs)
+                                func(args[0],user_data.dtpks,*args[1:],**kwargs)
                                 user_data.context.pop()
                                 user_data.cur_files.pop()
                 else:
@@ -98,14 +98,37 @@ def wrapper(func,cls):
         inner._mcpunction_fn_name = f"{cls.__name__}_{func.__name__}"
         return inner
 
+def mac(func):
+        func._mcpunction_ismac = True
+        return func
+
+def onload(func):
+        func._mcpunction_onload = True
+        return func
+
+def ontick(func):
+        func._mcpunction_ontick = True
+        return func
+
+def nowrap(func):
+        func._mcpunction_nowrap = True
+        return func
+
 class Dtpk:
         def __init_subclass__(cls,**kwargs):
                 super().__init_subclass__(**kwargs)
 
+                if any(char.isupper() for char in cls.__name__):
+                        raise AssertionError("클래스의 이름은 대문자를 포함할 수 없습니다"
+                                             "(함수 이름에 클래스 이름이 포함되기 때문에 대문자가 들어가면 인식되지 않습니다)")
+
                 for name, method in inspect.getmembers(cls, inspect.isfunction):
-                        if name[0].isupper() or name.startswith("__"):
+                        if name[0].isupper() or name.startswith("__") or hasattr(method,"_mcpunction_nowrap"):
                                 continue
                         setattr(cls, name, wrapper(method,cls))
+        # @nowrap
+        # def Init(self,version):
+        #         self.version=version
 
 class Context:
         def __init__(self,context):
@@ -150,22 +173,32 @@ class Block:
                 user_data.context.pop()
                 user_data.cur_files.pop()
                 self.fn_file.__exit__(*exc)
-                
-def mac(func):
-        func._mcpunction_ismac = True
-        return func
+               
 
-def onload(func):
-        func._mcpunction_onload = True
-        return func
-
-def ontick(func):
-        func._mcpunction_ontick = True
-        return func
-
-def make(dtpk: Dtpk,output_path: str,namespace="main",overwrite=False):
+def _compile_funcs(dtpk):
         global user_data
-        user_data=UserData(dtpk,output_path,namespace)
+        assrt(user_data)
+
+        load_funcs=[]
+        tick_funcs=[]
+
+        for name, method in inspect.getmembers(dtpk):
+                if name[0].isupper() or name.startswith("__"):
+                        continue
+                if isinstance(method,MethodType) and not getattr(method,"_mcpunction_ismac",False) \
+                   and not hasattr(method,"_mcpunction_nowrap"):
+                        if getattr(method,"_mcpunction_onload",False):
+                                load_funcs.append(f'"{user_data.namespace}:{getattr(method,"_mcpunction_fn_name")}"')
+                        if getattr(method,"_mcpunction_ontick",False):
+                                tick_funcs.append(f'"{user_data.namespace}:{getattr(method,"_mcpunction_fn_name")}"')
+                        method(_mcpunction_is_init=True)
+        return (load_funcs,tick_funcs)
+
+
+def make(*dtpks,version="1.21.11",output_path="./dtpk",namespace="main",overwrite=False):
+
+        global user_data
+        user_data=UserData(dtpks,version,output_path,namespace)
 
         try:
                 os.makedirs(output_path)
@@ -186,17 +219,12 @@ def make(dtpk: Dtpk,output_path: str,namespace="main",overwrite=False):
 
         with open(f"{output_path}/pack.mcmeta",'w') as f:
                 f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{user_data.pack_format}}}}}')
+                pass
 
-
-        for name, method in inspect.getmembers(dtpk):
-                if name[0].isupper() or name.startswith("__"):
-                        continue
-                if isinstance(method,MethodType) and not getattr(method,"_mcpunction_ismac",False):
-                        if getattr(method,"_mcpunction_onload",False):
-                                load_funcs.append(f'"{namespace}:{getattr(method,"_mcpunction_fn_name")}"')
-                        if getattr(method,"_mcpunction_ontick",False):
-                                tick_funcs.append(f'"{namespace}:{getattr(method,"_mcpunction_fn_name")}"')
-                        method(_mcpunction_is_init=True)
+        for dtpk in dtpks:
+                (l_fn, t_fn) = _compile_funcs(dtpk)
+                if len(l_fn): load_funcs.append(*l_fn)
+                if len(t_fn): tick_funcs.append(*t_fn)
 
         with open(f"{func_tags_dir}/load.json",'w') as f:
                 f.write('{"values":[')
