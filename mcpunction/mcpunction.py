@@ -46,12 +46,12 @@ def version_to_pack_format(version):
         return pack_format
 
 class UserData:
-        def __init__(self,dtpks,version,output_path,namespace):
+        def __init__(self,only_namespace,version,output_path,namespace):
+                self.dst=f"{output_path}/{'' if only_namespace else 'data'}"
                 self.pack_format=version_to_pack_format(version)
                 self.fn_dir_name="function" if self.pack_format>=48 else "functions"
-                self.func_dir_path=f"{output_path}/data/{namespace}/{self.fn_dir_name}"
+                self.func_dir_path=f"{self.dst}/{namespace}/{self.fn_dir_name}"
                 self.output_path=output_path
-                self.dtpks=dtpks
                 self.namespace=namespace
                 self.cur_files=[]
                 self.context=[]
@@ -83,17 +83,21 @@ def wrapper(func,cls):
                 assrt(user_data)
                 is_init=kwargs.pop("_mcpunction_is_init",False)
                 is_mac=getattr(func,"_mcpunction_ismac",False)
+
+                module_name=getattr(args[0],"_mcpunction_module_name",None)
+                if module_name == None:
+                        raise ValueError("module name이 존재하지 않음")
                 if is_mac:
                         return func(*args,**kwargs)
                 if is_init:
-                        with open(user_data.make_fn_path(f"{cls.__name__}_{func.__name__}"),'w') as fn_file:
+                        with open(user_data.make_fn_path(f"{module_name}_{func.__name__}"),'w') as fn_file:
                                 user_data.cur_files.append(fn_file)
                                 user_data.context.append([])
-                                func(args[0],user_data.dtpks,*args[1:],**kwargs)
+                                func(*args,**kwargs)
                                 user_data.context.pop()
                                 user_data.cur_files.pop()
                 else:
-                        raw(f"function {user_data.namespace}:{cls.__name__}_{func.__name__}")
+                        raw(f"function {user_data.namespace}:{module_name}_{func.__name__}")
         inner._mcpunction_wrapped = True
         inner._mcpunction_fn_name = f"{cls.__name__}_{func.__name__}"
         return inner
@@ -131,7 +135,7 @@ class Dtpk:
         #         self.version=version
 
 class Context:
-        def __init__(self,context):
+        def __init__(self,context: str):
                 self.context=context
         def __enter__(self):
                 global user_data
@@ -195,10 +199,11 @@ def _compile_funcs(dtpk):
         return (load_funcs,tick_funcs)
 
 
-def make(*dtpks,version="1.21.11",output_path="./dtpk",namespace="main",overwrite=False):
+def make(dtpks: dict,version="1.21.11",output_path="./dtpk",merge_dir=None,namespace="main",overwrite=False,no_root=False):
+        only_namespace=no_root
 
         global user_data
-        user_data=UserData(dtpks,version,output_path,namespace)
+        user_data=UserData(only_namespace,version,output_path,namespace)
 
         try:
                 os.makedirs(output_path)
@@ -212,16 +217,18 @@ def make(*dtpks,version="1.21.11",output_path="./dtpk",namespace="main",overwrit
                 shutil.rmtree(output_path)
                 os.makedirs(user_data.func_dir_path)
 
-        func_tags_dir = f"{user_data.output_path}/data/minecraft/tags/{user_data.fn_dir_name}"
+        func_tags_dir = f"{user_data.dst}/minecraft/tags/{user_data.fn_dir_name}"
         os.makedirs(func_tags_dir)
         load_funcs = []
         tick_funcs = []
 
-        with open(f"{output_path}/pack.mcmeta",'w') as f:
-                f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{user_data.pack_format}}}}}')
-                pass
+        if not only_namespace:
+                with open(f"{output_path}/pack.mcmeta",'w') as f:
+                        f.write(f'{{"pack":{{"description":"Made with McPunction","pack_format":{user_data.pack_format}}}}}')
 
-        for dtpk in dtpks:
+        for module_name, dtpk in dtpks.items():
+                setattr(dtpk,"_mcpunction_module_name",module_name)
+        for module_name, dtpk in dtpks.items():
                 (l_fn, t_fn) = _compile_funcs(dtpk)
                 if len(l_fn): load_funcs.append(*l_fn)
                 if len(t_fn): tick_funcs.append(*t_fn)
@@ -234,4 +241,33 @@ def make(*dtpks,version="1.21.11",output_path="./dtpk",namespace="main",overwrit
                 f.write('{"values":[')
                 f.write(",".join(tick_funcs))
                 f.write(']}')
+
+        if merge_dir != None:
+                for item in os.listdir(merge_dir):
+                        s = os.path.join(merge_dir, item)
+                        d = os.path.join(user_data.dst, item)
+                        if os.path.isdir(s):
+                                shutil.copytree(s, d, dirs_exist_ok=True)
+                        else:
+                                shutil.copy2(s, d)
+
         print("Done.")
+
+def to_snbt(value: any) -> str:
+        if isinstance(value, bool):
+                return "1b" if value else "0b"
+        elif isinstance(value, int):
+                return f"{value}"
+        elif isinstance(value, float):
+                return f"{value}f"
+        elif isinstance(value, str):
+                return f'"{value}"'
+        elif isinstance(value, list):
+                return "[" + ','.join(to_snbt(v) for v in value) + "]"
+        elif isinstance(value, dict):
+                items = []
+                for k, v in value.items():
+                        items.append(f"{k}:{to_snbt(v)}")
+                return "{" + ",".join(items) + "}"
+        else:
+                raise TypeError(f"Unsupported type: {type(value)}")
