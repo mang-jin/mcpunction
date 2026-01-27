@@ -5,6 +5,8 @@ from pathlib import Path
 from functools import wraps
 from types import MethodType
 
+newlines="\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n\\n"
+
 def assrt(cond,msg="Error occurred due to a bug. Please report it to mcpunction dev"):
         if not cond:
                 raise AssertionError(msg)
@@ -60,7 +62,7 @@ class UserData:
 
 user_data=None
 
-def raw(*args):
+def raw(*args,sep=' ',end="\n"):
         global user_data
         assrt(user_data and len(user_data.cur_files)>0 and len(user_data.context)>0)
                 
@@ -69,10 +71,10 @@ def raw(*args):
                 code+="execute "
                 code+=''.join(user_data.context[-1])
                 code+=" run "
-        code+=''.join(args)
+        code+=sep.join(args)
 
-        print("wrote raw:",code,"to",user_data.cur_files[-1].name)
-        user_data.cur_files[-1].write(f"{code}\n")
+        print(code)
+        user_data.cur_files[-1].write(f"{code}{end}")
 
 def wrapper(func,cls):
         if hasattr(func,"_mcpunction_wrapped"):
@@ -93,6 +95,7 @@ def wrapper(func,cls):
                         with open(user_data.make_fn_path(f"{module_name}_{func.__name__}"),'w') as fn_file:
                                 user_data.cur_files.append(fn_file)
                                 user_data.context.append([])
+                                print("="*10,user_data.cur_files[-1].name,"="*10)
                                 func(*args,**kwargs)
                                 user_data.context.pop()
                                 user_data.cur_files.pop()
@@ -158,22 +161,25 @@ class Block:
                 global user_data,block_id
                 assrt(user_data)
 
-                block_file_name=f"{block_id}_block"
-                raw(f"function {user_data.namespace}:{block_file_name}")
+                self.block_file_name=f"{block_id:02x}_block"
 
-                self.path=user_data.make_fn_path(block_file_name)
+                self.path=user_data.make_fn_path(self.block_file_name)
 
                 block_id+=1
         def __enter__(self):
                 global user_data
                 assrt(user_data and len(user_data.context)>0)
+                raw(f"function {user_data.namespace}:{self.block_file_name}")
+                print("="*10,"Block Start","="*10)
                 user_data.context.append([])
                 self.fn_file=open(self.path,'w')
                 self.fn_file.__enter__()
                 user_data.cur_files.append(self.fn_file)
+                return f'{user_data.namespace}:{self.block_file_name}'
         def __exit__(self,*exc):
                 global user_data
                 assrt(user_data and len(user_data.context)>0)
+                print("="*10,"Block End","="*10)
                 user_data.context.pop()
                 user_data.cur_files.pop()
                 self.fn_file.__exit__(*exc)
@@ -271,3 +277,8 @@ def to_snbt(value: any) -> str:
                 return "{" + ",".join(items) + "}"
         else:
                 raise TypeError(f"Unsupported type: {type(value)}")
+def get_fn(fn):
+        global user_data
+        assrt(user_data)
+        name = getattr(fn,"_mcpunction_fn_name",None)
+        return f"{user_data.namespace}:{name}"
